@@ -6,7 +6,7 @@ def show_model_analysis():
     st.header("📊 Phân tích Dữ liệu Tuyển sinh (2017 - 2024)")
     
     # Load dữ liệu
-    df = utils.load_data_from_file('../Dataset/diem_chuan_ussh_wide_final (3).csv')
+    df = utils.load_data_from_file('diem_chuan_ussh_wide_final (3).csv')
     
     if df.empty:
         st.warning("Chưa có dữ liệu. Vui lòng tải file 'data.csv' vào thư mục gốc.")

@@ -15,9 +15,9 @@ KHOI_THI_MAPPING = {
     'D04': ['Toán', 'Văn', 'Tiếng Trung'],
     'D14': ['Văn', 'Sử', 'Anh'],
     'D78': ['Văn', 'KHXH', 'Anh'],
-    # Thêm các khối khác nếu cần
 }
-MODEL_FILE_V2 = '../admission_model_v2.pkl'
+MODEL_FILE = 'admission_model.pkl'
+MODEL_FILE_V2 = 'admission_model_v2.pkl'
 
 # --- 1. HÀM LOAD ARTIFACTS ---
 @st.cache_resource
@@ -26,20 +26,26 @@ def load_artifacts():
         try:
             return joblib.load(MODEL_FILE_V2)
         except Exception as e:
-            st.error(f"Lỗi load model: {e}")
+            # st.warning(f"Không load được model V2: {e}")
+            pass
     return None
 
-# --- 2. HÀM DỰ BÁO NÂNG CAO ---
+@st.cache_resource
+def load_prediction_model():
+    if os.path.exists(MODEL_FILE):
+        try:
+            return joblib.load(MODEL_FILE)
+        except Exception as e:
+            return None
+    return None
+
+# --- 2. HÀM DỰ BÁO ---
 def predict_score_advanced(row, artifacts):
-    """
-    Dự báo dựa trên: Ngành + Tổ hợp + Điểm 3 năm (2022, 2023, 2024)
-    """
     try:
         s1 = float(row.get('2022', 0))
         s2 = float(row.get('2023', 0))
         s3 = float(row.get('2024', 0))
         
-        # Nếu thiếu dữ liệu lịch sử -> Fallback về trung bình
         if s3 == 0: return 0.0
         if s2 == 0: return s3
         
@@ -48,35 +54,25 @@ def predict_score_advanced(row, artifacts):
             le_major = artifacts['le_major']
             le_combo = artifacts['le_combo']
             
-            major_name = row['Tên ngành']
-            combo_name = row['Tổ hợp môn']
+            major_name = row.get('Tên ngành', '')
+            combo_name = row.get('Tổ hợp môn', '')
             
-            # Kiểm tra xem Ngành/Tổ hợp này có trong lúc train không?
-            # Nếu có mới encode được, không thì dùng thuật toán fallback
             if (major_name in le_major.classes_) and (combo_name in le_combo.classes_):
                 major_code = le_major.transform([major_name])[0]
                 combo_code = le_combo.transform([combo_name])[0]
                 
-                # Input vector: [Major, Combo, S1, S2, S3]
                 input_vec = np.array([[major_code, combo_code, s1, s2, s3]])
                 pred = model.predict(input_vec)[0]
                 return min(max(pred, 15.0), 29.9)
         
-        # Fallback logic (nếu không có model hoặc ngành mới)
         trend = s3 - s2
         return s3 + (trend * 0.5)
 
-    except Exception as e:
+    except Exception:
         return 0.0
 
-# --- 3. HÀM TÍNH ĐIỂM TỔ HỢP TỪ KHO ĐIỂM ---
+# --- 3. HÀM TÍNH ĐIỂM ---
 def calculate_combo_score(student_scores, combo_name):
-    """
-    Input: 
-        - student_scores: {'Toán': 8, 'Văn': 7...}
-        - combo_name: 'A00'
-    Output: Tổng điểm (float) hoặc 0 nếu thiếu điểm
-    """
     if combo_name not in KHOI_THI_MAPPING:
         return 0.0
     
@@ -84,39 +80,50 @@ def calculate_combo_score(student_scores, combo_name):
     total = 0.0
     for subj in subjects:
         score = student_scores.get(subj, 0.0)
-        # Nếu điểm <= 0 hoặc None coi như không xét được khối này
         if score is None or score <= 0:
             return 0.0
         total += score
     return total
 
-# --- DATA LOADER (Update để dùng hàm predict mới) ---
+# --- 4. DATA LOADER ---
 @st.cache_data
 def load_data_with_prediction(file_path='data.csv'):
-    # ... (Phần đọc file giữ nguyên như cũ) ...
-    if file_path.endswith('.csv'):
-        df = pd.read_csv(file_path)
-    else:
-        df = pd.read_excel(file_path)
-        
-    df.columns = df.columns.str.strip()
-    if 'Tổ hợp môn' in df.columns:
-        df['Tổ hợp môn'] = df['Tổ hợp môn'].astype(str).apply(lambda x: re.split(r'[;,]\s*', x))
-        df = df.explode('Tổ hợp môn').reset_index(drop=True)
-        df['Tổ hợp môn'] = df['Tổ hợp môn'].str.strip()
-        
-    year_cols = [str(y) for y in range(2017, 2025)]
-    for col in year_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # Kiểm tra file tồn tại trước khi đọc
+    if not os.path.exists(file_path):
+        return pd.DataFrame()
 
-    # LOAD MODEL & PREDICT
-    artifacts = load_artifacts()
-    df['Dự báo 2025'] = df.apply(lambda row: predict_score_advanced(row, artifacts), axis=1)
-    
-    return df
+    try:
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        else:
+            df = pd.read_excel(file_path)
+            
+        df.columns = df.columns.str.strip()
+        
+        if 'Tổ hợp môn' in df.columns:
+            df['Tổ hợp môn'] = df['Tổ hợp môn'].astype(str).apply(lambda x: re.split(r'[;,]\s*', x))
+            df = df.explode('Tổ hợp môn').reset_index(drop=True)
+            df['Tổ hợp môn'] = df['Tổ hợp môn'].str.strip()
+        
+        year_cols = [str(y) for y in range(2017, 2025)]
+        for col in year_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-# ... (Các hàm style, status giữ nguyên) ...
+        artifacts = load_artifacts()
+        # Nếu có cột Tên ngành và 2024 thì mới dự báo
+        if 'Tên ngành' in df.columns and '2024' in df.columns:
+            df['Dự báo 2025'] = df.apply(lambda row: predict_score_advanced(row, artifacts), axis=1)
+        else:
+             df['Dự báo 2025'] = 0.0
+        
+        return df
+
+    except Exception as e:
+        st.error(f"Lỗi đọc file {file_path}: {e}")
+        return pd.DataFrame()
+
+# --- 5. STYLING ---
 def get_status_text(diff):
     if diff >= 1.5: return "An toàn cao"
     elif diff >= 0.5: return "Khả quan"
@@ -131,4 +138,11 @@ def style_recommendation_table(df):
         else: color = '#f8d7da' 
         return f'background-color: {color}; color: black; font-weight: bold;'
     
-    return df.style.applymap(color_status, subset=['Đánh giá']).format("{:.2f}", subset=['Điểm của bạn', 'Dự báo 2025', 'Dư địa điểm'])
+    styler = df.style.applymap(color_status, subset=['Đánh giá'])
+    
+    cols_to_format = ['Điểm của bạn', 'Dự báo 2025', 'Dư địa điểm', '2023', '2024']
+    valid_cols = [c for c in cols_to_format if c in df.columns]
+    if valid_cols:
+        styler = styler.format("{:.2f}", subset=valid_cols)
+        
+    return styler

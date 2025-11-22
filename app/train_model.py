@@ -6,7 +6,7 @@ from sklearn.preprocessing import LabelEncoder
 import joblib
 
 # --- CẤU HÌNH ---
-DATA_PATH = 'diem_chuan_ussh_wide_final (3).csv'
+DATA_PATH = 'data.csv'
 MODEL_PATH = 'admission_model_v2.pkl' # Model mới
 ENCODER_PATH = 'encoders.pkl'         # File lưu bộ mã hóa
 WINDOW_SIZE = 3                       # Dùng 3 năm cũ để đoán năm mới

@@ -1,5 +1,5 @@
 import streamlit as st
-import ultilities as utils
+import app.utilities as utils
 import pandas as pd
 
 # Danh sách môn phổ biến để tạo form nhập
@@ -26,7 +26,7 @@ def show_prediction_system():
     st.markdown("Nhập điểm thi của bạn, hệ thống sẽ tự động ghép tổ hợp và dự báo khả năng đỗ.")
 
     # Load dữ liệu (đã có cột Dự báo 2025 từ Model)
-    df_data = utils.load_data_with_prediction('diem_chuan_ussh_wide_final (3).csv')
+    df_data = utils.load_data_with_prediction('data.csv')
     if df_data.empty:
         st.error("Thiếu file dữ liệu.")
         st.stop()

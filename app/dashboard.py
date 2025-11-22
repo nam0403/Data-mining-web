@@ -1,6 +1,6 @@
 import streamlit as st
 import plotly.express as px
-import app.utilities as utils
+import utilities as utils
 
 def show_model_analysis():
     st.header("📊 Phân tích Dữ liệu Tuyển sinh (2017 - 2024)")

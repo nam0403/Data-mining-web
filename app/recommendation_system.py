@@ -1,5 +1,5 @@
 import streamlit as st
-import app.utilities as utils
+import utilities as utils
 import pandas as pd
 
 # Danh sách môn phổ biến để tạo form nhập

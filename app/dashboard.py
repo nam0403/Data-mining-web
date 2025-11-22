@@ -1,49 +1,51 @@
 import streamlit as st
 import plotly.express as px
-import utilities as utils
+import utilities as utils # Đã sửa import
+import os
 
 def show_model_analysis():
-    st.header("📊 Phân tích Dữ liệu Tuyển sinh (2017 - 2024)")
+    st.header("📊 Phân tích Dữ liệu & Trạng thái Model")
     
-    # Load dữ liệu
-    df = utils.load_data_from_file('data.csv')
+    # --- CHECK MODEL ---
+    model_path = 'admission_model_v2.pkl'
+    if os.path.exists(model_path):
+        st.success(f"✅ **AI Model đang hoạt động**: `{model_path}`")
+    else:
+        st.warning("⚠️ **Chế độ cơ bản**: Không tìm thấy file model. Đang dùng công thức toán học.")
     
-    if df.empty:
-        st.warning("Chưa có dữ liệu. Vui lòng tải file 'data.csv' vào thư mục gốc.")
-        return
-
-    # Thống kê cơ bản
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Tổng số Ngành đào tạo", df['Tên ngành'].nunique())
-    c2.metric("Số lượng Mã tuyển sinh", df['Mã ngành'].nunique())
-    c3.metric("Điểm chuẩn TB 2024", f"{df['2024'].mean():.2f}")
-
     st.markdown("---")
     
-    # 1. Biểu đồ xu hướng điểm chuẩn qua các năm
-    st.subheader("📈 Xu hướng biến động điểm chuẩn")
+    # --- LOAD DATA ---
+    default_file = 'data.csv'
+    if os.path.exists(default_file):
+        df = utils.load_data_with_prediction(default_file)
+    else:
+        st.warning(f"Không tìm thấy '{default_file}'. Vui lòng upload file.")
+        uploaded_file = st.file_uploader("Upload data.csv", type=['csv', 'xlsx'])
+        if uploaded_file:
+            df = utils.load_data_with_prediction(uploaded_file)
+        else:
+            return
+
+    if df.empty:
+        st.error("Dữ liệu rỗng.")
+        return
+
+    # Thống kê
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tổng số Ngành", df['Tên ngành'].nunique())
+    if 'Mã ngành' in df.columns:
+        c2.metric("Mã tuyển sinh", df['Mã ngành'].nunique())
+    if '2024' in df.columns:
+        c3.metric("Điểm chuẩn TB 2024", f"{df['2024'].mean():.2f}")
     
-    # Chọn ngành để xem
-    selected_major = st.selectbox("Chọn Ngành để xem biểu đồ xu hướng:", df['Tên ngành'].unique())
-    
-    # Lấy dữ liệu ngành đó
+    st.subheader("📈 Xu hướng điểm chuẩn")
+    selected_major = st.selectbox("Chọn Ngành:", df['Tên ngành'].unique())
     df_major = df[df['Tên ngành'] == selected_major]
     
-    # Melt dữ liệu (Chuyển cột Năm thành dòng để vẽ biểu đồ)
-    # Chỉ lấy các cột số (Năm)
     year_cols = [c for c in df.columns if c.isdigit()]
-    df_melt = df_major.melt(id_vars=['Tên ngành', 'Tổ hợp môn'], value_vars=year_cols, var_name='Năm', value_name='Điểm chuẩn')
-    df_melt = df_melt[df_melt['Điểm chuẩn'] > 0] # Bỏ các năm không tuyển sinh (điểm = 0)
-    df_melt = df_melt.sort_values('Năm')
-
-    fig = px.line(df_melt, x='Năm', y='Điểm chuẩn', color='Tổ hợp môn', markers=True,
-                  title=f"Biểu đồ điểm chuẩn ngành {selected_major} qua các năm")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # 2. Phân bố điểm năm 2024
-    st.subheader("📊 Phân bố điểm chuẩn năm 2024 (Tất cả các ngành)")
-    fig_hist = px.histogram(df, x="2024", nbins=20, title="Phổ điểm chuẩn 2024", text_auto=True)
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-    with st.expander("📂 Xem dữ liệu thô (Raw Data)"):
-        st.dataframe(df)
+    if year_cols:
+        df_melt = df_major.melt(id_vars=['Tên ngành', 'Tổ hợp môn'], value_vars=year_cols, var_name='Năm', value_name='Điểm chuẩn')
+        df_melt = df_melt[df_melt['Điểm chuẩn'] > 0].sort_values('Năm')
+        fig = px.line(df_melt, x='Năm', y='Điểm chuẩn', color='Tổ hợp môn', markers=True)
+        st.plotly_chart(fig, use_container_width=True)

@@ -17,7 +17,7 @@ KHOI_THI_MAPPING = {
     'D78': ['Văn', 'KHXH', 'Anh'],
     # Thêm các khối khác nếu cần
 }
-MODEL_FILE_V2 = 'admission_model_v2.pkl'
+MODEL_FILE_V2 = '../admission_model_v2.pkl'
 
 # --- 1. HÀM LOAD ARTIFACTS ---
 @st.cache_resource

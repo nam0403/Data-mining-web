@@ -26,7 +26,7 @@ def show_prediction_system():
     st.markdown("Nhập điểm thi của bạn, hệ thống sẽ tự động ghép tổ hợp và dự báo khả năng đỗ.")
 
     # Load dữ liệu (đã có cột Dự báo 2025 từ Model)
-    df_data = utils.load_data_with_prediction('../Dataset/diem_chuan_ussh_wide_final (3).csv')
+    df_data = utils.load_data_with_prediction('Data-mining-web/Dataset/diem_chuan_ussh_wide_final (3).csv')
     if df_data.empty:
         st.error("Thiếu file dữ liệu.")
         st.stop()

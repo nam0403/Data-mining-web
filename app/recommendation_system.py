@@ -1,215 +1,231 @@
 import streamlit as st
 import utilities as utils
 import pandas as pd
-import plotly.express as px # Thêm thư viện vẽ biểu đồ
-import os
-
-# Danh sách môn phổ biến
-ALL_SUBJECT_INPUTS = ['Toán', 'Văn', 'Ngoại ngữ (Anh)', 'Lý', 'Hóa', 'Sinh', 'Sử', 'Địa', 'GDCD']
-
-SUBJECT_MAP_STANDARD = {
-    'Ngoại ngữ (Anh)': 'Anh',
-    'Ngoại ngữ (Trung)': 'Tiếng Trung',
-}
-
-def standardize_score_dict(raw_scores):
-    std_scores = {}
-    for k, v in raw_scores.items():
-        std_name = SUBJECT_MAP_STANDARD.get(k, k)
-        std_scores[std_name] = v
-    return std_scores
-
-# Hàm tạo tên hiển thị đẹp cho biểu đồ (Giống Dashboard)
-def create_display_name(row):
-    major_name = row['Tên ngành']
-    combo = row['Tổ hợp môn']
-    is_clc = 'CLC' in major_name.upper() or 'CHẤT LƯỢNG CAO' in major_name.upper()
-    type_label = " (CLC)" if is_clc else ""
-    return f"{major_name}{type_label} - {combo}"
+import plotly.express as px
 
 def show_prediction_system():
-    st.title("🤖 Hệ thống Dự báo & Tư vấn Tuyển sinh")
-    st.markdown("Nhập điểm thi để nhận dự báo chi tiết và biểu đồ xu hướng điểm chuẩn.")
-    
-    # --- LOAD DATA ---
-    default_file = 'data.csv'
-    if os.path.exists(default_file):
-        df_data = utils.load_data_with_prediction(default_file)
-    else:
-        st.warning(f"⚠️ Không tìm thấy file '{default_file}'.")
-        uploaded_file = st.file_uploader("Tải lên file dữ liệu (data.csv):", type=['csv', 'xlsx'])
-        if uploaded_file:
-            df_data = utils.load_data_with_prediction(uploaded_file)
-        else:
-            st.stop()
+    st.title("🎯 Hệ thống Tư vấn Tuyển sinh")
+    st.markdown("Nhập thông tin nguyện vọng và điểm thi để nhận dự báo chi tiết.")
 
-    if df_data.empty:
-        st.error("Dữ liệu rỗng.")
-        st.stop()
+    # --- LOAD MODELS ---
+    models = utils.load_all_models()
 
-    ALL_MAJORS = sorted(df_data['Tên ngành'].unique())
-
-    # --- PHẦN 1: NHẬP ĐIỂM ---
+    # =========================================================
+    # KHUNG NHẬP LIỆU (INPUT)
+    # =========================================================
     with st.container(border=True):
-        st.subheader("1. Nhập điểm thi THPT")
-        cols = st.columns(3)
-        raw_scores = {}
-        for i, subj in enumerate(ALL_SUBJECT_INPUTS):
-            with cols[i % 3]:
-                raw_scores[subj] = st.number_input(f"Điểm {subj}", 0.0, 10.0, step=0.25, key=f"in_{i}")
+        st.subheader("📝 Thông tin Hồ sơ")
         
-        std_scores = standardize_score_dict(raw_scores)
-
-    # --- PHẦN 2: CHỌN NGÀNH ---
-    st.markdown("---")
-    st.subheader("2. Phân tích Ngành Mục tiêu")
-    
-    col_sel, col_act = st.columns([3, 1])
-    with col_sel:
-        target_major = st.selectbox("Chọn ngành bạn quan tâm:", ALL_MAJORS, index=None, placeholder="Ví dụ: Báo chí...")
-    
-    analyze_clicked = False
-    with col_act:
-        st.write("") 
-        st.write("")
-        if st.button("🚀 PHÂN TÍCH NGAY", type="primary", use_container_width=True):
-            analyze_clicked = True
-
-    # --- PHẦN 3: KẾT QUẢ PHÂN TÍCH ---
-    if analyze_clicked and target_major:
-        # Lọc dữ liệu ngành mục tiêu
-        df_target = df_data[df_data['Tên ngành'] == target_major].copy()
-        
-        if df_target.empty:
-            st.warning("Không có dữ liệu cho ngành này.")
-        else:
-            # 3.1 Tính toán điểm thí sinh
-            results = []
-            for idx, row in df_target.iterrows():
-                combo = row['Tổ hợp môn']
-                predicted_score = row['Dự báo 2025']
-                my_score = utils.calculate_combo_score(std_scores, combo)
-                
-                if my_score > 0:
-                    diff = my_score - predicted_score
-                    results.append({
-                        'Tổ hợp môn': combo,
-                        'Điểm của bạn': my_score,
-                        'Dự báo 2025': predicted_score,
-                        'Dư địa điểm': diff,
-                        'Đánh giá': utils.get_status_text(diff)
-                    })
+        # --- BƯỚC 1: CHỌN TRƯỜNG ---
+        # Lấy danh sách trường từ Database
+        schools = utils.get_all_schools()
+        if not schools:
+            st.error("Database trống. Vui lòng nạp dữ liệu.")
+            st.stop()
             
+        # Mapping: "Mã - Tên" -> ID
+        school_map = {f"{s.code} - {s.name}": s.id for s in schools}
+        sel_school_label = st.selectbox(
+            "1. Chọn Trường Đại học:", 
+            list(school_map.keys()), 
+            index=None, 
+            placeholder="Gõ mã hoặc tên trường..."
+        )
+        school_id = school_map.get(sel_school_label)
+
+        # --- BƯỚC 2: CHỌN NGÀNH ---
+        major_id = None
+        sel_major_label = None
+        if school_id:
+            # Lấy danh sách ngành của trường đã chọn
+            majors = utils.get_majors_by_school(school_id)
+            major_map = {f"{m.code} - {m.name}": m.id for m in majors}
+            
+            sel_major_label = st.selectbox(
+                "2. Chọn Ngành học:", 
+                list(major_map.keys()), 
+                index=None, 
+                placeholder="Chọn ngành..."
+            )
+            major_id = major_map.get(sel_major_label)
+
+        # --- BƯỚC 3: CHỌN TỔ HỢP & ĐIỂM VÙNG ---
+        combo_id = None
+        combo_code = None
+        if major_id:
+            # Lấy danh sách tổ hợp của ngành đã chọn
+            combos = utils.get_combinations_by_school_major(school_id, major_id)
+            combo_map = {c.code: c.id for c in combos}
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                combo_code = st.selectbox(
+                    "3. Chọn Tổ hợp xét tuyển:", 
+                    list(combo_map.keys()), 
+                    index=None, 
+                    placeholder="Chọn khối..."
+                )
+                combo_id = combo_map.get(combo_code)
+            
+            with c2:
+                region_bonus = st.selectbox(
+                    "4. Điểm ưu tiên (Khu vực/Đối tượng):", 
+                    options=[0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.75],
+                    format_func=lambda x: f"+{x} điểm" if x > 0 else "Không có"
+                )
+
+        # --- BƯỚC 5: NHẬP ĐIỂM THI (DYNAMIC INPUTS) ---
+        scores = {}
+        analyze = False
+        if combo_id:
             st.divider()
+            st.markdown(f"**5. Nhập điểm thi tổ hợp {combo_code}:**")
             
-            # Nếu chưa nhập điểm
-            if not results:
-                st.error(f"⚠️ Bạn chưa nhập đủ điểm cho các khối xét tuyển của ngành này: {', '.join(df_target['Tổ hợp môn'].unique())}")
+            # Lấy chính xác tên môn học của tổ hợp từ DB
+            subjects = utils.get_subjects_of_combination(combo_id)
+            
+            if not subjects:
+                st.error(f"Không tìm thấy môn thi cho tổ hợp {combo_code}.")
             else:
-                df_res = pd.DataFrame(results).sort_values(by='Dư địa điểm', ascending=False)
-                best_option = df_res.iloc[0]
+                # Tạo các ô nhập điểm tương ứng
+                cols = st.columns(len(subjects))
+                for i, subj in enumerate(subjects):
+                    with cols[i]:
+                        scores[subj] = st.number_input(f"Điểm {subj}", 0.0, 10.0, step=0.25, key=f"s_{i}")
                 
-                # --- HIỂN THỊ KẾT QUẢ TỐI ƯU ---
-                st.success(f"✅ Tổ hợp tối ưu nhất: **{best_option['Tổ hợp môn']}**")
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Điểm của bạn", f"{best_option['Điểm của bạn']:.2f}")
-                c2.metric("Dự báo Điểm chuẩn 2025", f"{best_option['Dự báo 2025']:.2f}")
-                c3.metric("Đánh giá cơ hội", best_option['Đánh giá'], delta=f"{best_option['Dư địa điểm']:.2f}")
+                st.write("")
+                analyze = st.button("🚀 DỰ BÁO & TƯ VẤN", type="primary", use_container_width=True)
 
-                # --- VISUALIZATION: BIỂU ĐỒ XU HƯỚNG (LINE CHART) ---
-                st.markdown("#### 📈 Xu hướng điểm chuẩn qua các năm")
-                
-                # Chuẩn bị dữ liệu vẽ chart
-                year_cols = [c for c in df_target.columns if c.isdigit()]
-                year_cols = sorted(year_cols)
-                
-                if year_cols:
-                    # Tạo tên hiển thị đẹp (Tách CLC)
-                    df_target['Tên hiển thị'] = df_target.apply(create_display_name, axis=1)
-                    
-                    df_melt = df_target.melt(
-                        id_vars=['Tên hiển thị', 'Tổ hợp môn'], 
-                        value_vars=year_cols, 
-                        var_name='Năm', 
-                        value_name='Điểm chuẩn'
-                    )
-                    df_melt = df_melt[df_melt['Điểm chuẩn'] > 0]
-                    
-                    fig = px.line(
-                        df_melt, 
-                        x='Năm', y='Điểm chuẩn', 
-                        color='Tên hiển thị', 
-                        markers=True,
-                        title=f"Lịch sử điểm chuẩn ngành {target_major}",
-                        labels={'Tên hiển thị': 'Tổ hợp & Hệ'}
-                    )
-                    # Thêm điểm dự báo 2025 vào biểu đồ (nếu muốn)
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # --- BẢNG CHI TIẾT ---
-                st.markdown("#### 📋 Chi tiết các tổ hợp")
-                st.dataframe(utils.style_recommendation_table(df_res), use_container_width=True, hide_index=True)
-
-    # --- PHẦN 4: GỢI Ý NGÀNH KHÁC (RECOMMENDATION) ---
-    if analyze_clicked:
-        st.markdown("---")
-        st.subheader("💡 Gợi ý: Các ngành phù hợp với điểm của bạn")
+    # =========================================================
+    # XỬ LÝ KẾT QUẢ (OUTPUT)
+    # =========================================================
+    if analyze:
+        # 1. Tính tổng điểm
+        raw_sum = sum(scores.values())
+        total_score = raw_sum + region_bonus
         
-        rec_results = []
-        for idx, row in df_data.iterrows():
-            if row['Tên ngành'] == target_major: continue
+        # 2. Lấy dữ liệu lịch sử ngành mục tiêu
+        history = utils.get_history_dict(school_id, major_id, combo_id)
+        if not history:
+            st.warning("Không có dữ liệu lịch sử cho ngành này.")
+            st.stop()
             
-            combo = row['Tổ hợp môn']
-            my_score = utils.calculate_combo_score(std_scores, combo)
-            
-            if my_score > 0:
-                pred = row['Dự báo 2025']
-                diff = my_score - pred
-                # Lấy ngành an toàn hoặc rủi ro thấp (lệch không quá -1 điểm)
-                if diff >= -1.0: 
-                    rec_results.append({
-                        'Tên ngành': row['Tên ngành'],
-                        'Tổ hợp môn': combo,
-                        'Điểm của bạn': my_score,
-                        'Dự báo 2025': pred,
-                        'Dư địa điểm': diff,
-                        'Đánh giá': utils.get_status_text(diff)
-                    })
-        
-        if rec_results:
-            df_rec = pd.DataFrame(rec_results)
-            # Lấy top 10 ngành tốt nhất, mỗi ngành chỉ lấy 1 tổ hợp cao điểm nhất
-            df_rec = df_rec.sort_values(by='Dư địa điểm', ascending=False).drop_duplicates(subset=['Tên ngành']).head(10)
-            
-            # --- VISUALIZATION: SO SÁNH ĐIỂM (BAR CHART) ---
-            st.caption("Biểu đồ so sánh: Điểm của bạn vs Điểm Dự báo cho Top 5 ngành phù hợp nhất")
-            
-            top_5_chart = df_rec.head(5).copy()
-            # Tạo tên hiển thị ngắn gọn cho chart
-            top_5_chart['Label'] = top_5_chart['Tên ngành'] + " (" + top_5_chart['Tổ hợp môn'] + ")"
-            
-            # Melt dữ liệu để vẽ Grouped Bar Chart
-            df_bar = top_5_chart.melt(
-                id_vars=['Label'], 
-                value_vars=['Điểm của bạn', 'Dự báo 2025'], 
-                var_name='Loại điểm', 
-                value_name='Điểm số'
-            )
-            
-            fig_bar = px.bar(
-                df_bar, 
-                x='Điểm số', 
-                y='Label', 
-                color='Loại điểm', 
-                barmode='group',
-                orientation='h', # Biểu đồ ngang cho dễ đọc tên ngành dài
-                title="Top 5 Ngành Tiềm năng nhất",
-                color_discrete_map={'Điểm của bạn': '#2ECC71', 'Dự báo 2025': '#3498DB'}
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-            # --- BẢNG DỮ LIỆU GỢI Ý ---
-            st.dataframe(utils.style_recommendation_table(df_rec), use_container_width=True, hide_index=True)
+        # Tách tên ngành để hiển thị đẹp hơn
+        if sel_major_label:
+            parts = sel_major_label.split(" - ", 1)
+            major_name = parts[1] if len(parts) > 1 else parts[0]
         else:
-            st.info("Với mức điểm hiện tại, chưa tìm thấy ngành gợi ý phù hợp trong vùng an toàn.")
+            major_name = ""
+
+        # Chuẩn bị dữ liệu chạy mô hình dự báo
+        row_data = history.copy()
+        row_data.update({'Tên ngành': major_name, 'Tổ hợp môn': combo_code})
+        
+        # Chạy dự báo đa mô hình
+        predictions = utils.predict_multimodel(row_data, models)
+        final_pred = predictions['RandomForest'] # Lấy RF làm kết quả chính
+        diff = total_score - final_pred
+        status = utils.get_status_text(diff)
+        is_pass = diff >= 0
+
+        # --- A. GIAO DIỆN KẾT QUẢ CHÍNH ---
+        st.markdown("---")
+        st.header("📊 Kết quả Phân tích Ngành Mục tiêu")
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Tổng điểm xét tuyển", f"{total_score:.2f}", help=f"Điểm thi: {raw_sum} + Ưu tiên: {region_bonus}")
+        m2.metric("Dự báo (Random Forest)", f"{final_pred:.2f}")
+        m3.metric("Baseline (Trend)", f"{predictions['Baseline']:.2f}")
+        m4.metric("Kết luận", status, delta=f"{diff:+.2f}", delta_color="normal" if is_pass else "inverse")
+
+        # Biểu đồ & Bảng
+        col_chart, col_table = st.columns([1, 1])
+        
+        with col_chart:
+            st.subheader("📈 So sánh các Mô hình")
+            model_df = pd.DataFrame(list(predictions.items()), columns=['Mô hình', 'Điểm dự báo'])
+            fig = px.bar(model_df, x='Điểm dự báo', y='Mô hình', orientation='h', 
+                         text_auto='.2f', color='Mô hình', title=f"Dự báo điểm chuẩn {major_name}")
+            fig.add_vline(x=total_score, line_dash="dash", line_color="red", annotation_text="Điểm của bạn")
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col_table:
+            st.subheader("📋 Lịch sử & Dự báo")
+            # Xử lý bảng ngang (Pivot)
+            clean_history = {}
+            for k, v in history.items():
+                try:
+                    clean_year = str(int(float(k))) 
+                    clean_history[clean_year] = v
+                except:
+                    clean_history[k] = v
+            
+            clean_history['2025 (Dự báo)'] = final_pred
+            
+            df_hist = pd.DataFrame([clean_history])
+            # Sắp xếp cột năm tăng dần, đưa 2025 về cuối
+            cols = sorted([c for c in df_hist.columns if c != '2025 (Dự báo)']) + ['2025 (Dự báo)']
+            df_hist = df_hist.reindex(columns=cols)
+            
+            st.dataframe(
+                df_hist.style.format("{:.2f}")
+                .background_gradient(cmap='Blues', axis=1),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # --- B. RECOMMENDATION SYSTEM (AI DRIVEN) ---
+        st.markdown("---")
+        st.header(f"💡 Gợi ý Nguyện vọng (Khối {combo_code})")
+        
+        rec_df = pd.DataFrame()
+        scenario_msg = ""
+
+        # KỊCH BẢN 1: ĐẬU -> Gợi ý các ngành khác trong trường CÙNG TỔ HỢP
+        if is_pass:
+            current_school_name = sel_school_label.split(' - ')[1] if ' - ' in sel_school_label else sel_school_label
+            scenario_msg = f"🎉 **Chúc mừng!** Bạn có khả năng cao trúng tuyển ngành **{major_name}**. Dưới đây là các ngành khác tại **{current_school_name}** xét tuyển khối **{combo_code}** phù hợp với điểm của bạn:"
+            
+            # Gọi hàm tìm kiếm theo tổ hợp cụ thể
+            rec_df = utils.get_recommendations_by_specific_combo(
+                combo_code, total_score, current_school_id=school_id, limit=5
+            )
+        
+        # KỊCH BẢN 2: TRƯỢT -> Tìm ngành khác trong trường -> Nếu ko có thì tìm trường khác
+        else:
+            scenario_msg = f"⚠️ Điểm của bạn hơi thấp so với dự báo. Hệ thống đề xuất các lựa chọn an toàn hơn với khối **{combo_code}**:"
+            
+            # 2a. Tìm trong trường hiện tại
+            rec_df = utils.get_recommendations_by_specific_combo(
+                combo_code, total_score, current_school_id=school_id, limit=5
+            )
+            
+            # 2b. Nếu trường này ko có -> Tìm toàn hệ thống
+            if rec_df.empty:
+                scenario_msg += "\n\n*(Không tìm thấy ngành phù hợp tại trường này, hệ thống đã mở rộng tìm kiếm sang các trường khác trên toàn quốc...)*"
+                rec_df = utils.get_recommendations_by_specific_combo(
+                    combo_code, total_score, current_school_id=None, limit=10
+                )
+
+        # KỊCH BẢN 3: TRƯỢT HẾT (Điểm quá thấp) -> Show ngành điểm thấp nhất
+        if rec_df.empty:
+            st.warning(f"😔 Với mức điểm hiện tại, hệ thống chưa tìm thấy ngành nào xét tuyển khối **{combo_code}** phù hợp.")
+            st.info("💪 **Đừng lo lắng!** Dưới đây là một số ngành có điểm chuẩn thấp nhất năm ngoái trên toàn hệ thống để bạn tham khảo:")
+            rec_df = utils.get_lowest_score_majors(limit=5)
+        else:
+            st.success(scenario_msg)
+
+        # HIỂN THỊ BẢNG GỢI Ý
+        if not rec_df.empty:
+            # Chọn các cột quan trọng để hiển thị
+            display_cols = ['Trường', 'Ngành', 'Tổ hợp', '2023', '2024', 'Dự báo 2025', 'Chênh lệch']
+            # Lọc cột chỉ lấy những cột có trong DataFrame kết quả (để tránh lỗi nếu thiếu cột)
+            valid_cols = [c for c in display_cols if c in rec_df.columns]
+            
+            st.dataframe(
+                rec_df[valid_cols].style
+                .format("{:.2f}", subset=[c for c in ['2023', '2024', 'Dự báo 2025', 'Chênh lệch'] if c in rec_df.columns])
+                .background_gradient(cmap='Greens', subset=['Dự báo 2025'] if 'Dự báo 2025' in rec_df.columns else None),
+                use_container_width=True,
+                hide_index=True
+            )

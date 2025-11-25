@@ -8,3 +8,4 @@ sqlmodel
 fastapi
 uvicorn
 openpyxl
+matplotlib

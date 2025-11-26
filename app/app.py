@@ -14,7 +14,7 @@ with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2231/2231649.png", width=100) # Placeholder Logo
     st.title("Điều khiển")
     page = st.radio(
-        "Chọn chức năng:", 
+        "Chức năng:", 
         ["🎓 Hệ thống Dự đoán"],
         index=0
     )

@@ -50,7 +50,7 @@ def show_prediction_system():
         </style>
     """, unsafe_allow_html=True)
 
-    st.title("🎓 Hệ Thống Tư Vấn Tuyển Sinh AI 2025")
+    st.title("🎓 Hệ Thống Tư Vấn Tuyển Sinh 2025")
     st.markdown("Nhập thông tin hồ sơ để nhận dự báo điểm chuẩn và gợi ý nguyện vọng tối ưu.")
 
     # --- 2. INITIALIZE (Khởi tạo Predictor) ---

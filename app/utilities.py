@@ -246,13 +246,14 @@ def get_subjects_of_combination(combo_id: int):
 def get_recommendations_by_specific_combo(combo_code: str, user_score: float, current_school_id: Optional[int] = None, limit: int = 5):
     """
     Gợi ý ngành dựa trên tổ hợp và điểm.
+    Logic mới: Nếu tìm trong trường hiện tại không thấy kết quả (do điểm thấp),
+    tự động mở rộng tìm kiếm sang toàn bộ hệ thống các trường khác.
     """
-    results_list = []
     
-    with Session(engine) as session:
-        combo = session.exec(select(Combination).where(Combination.code == combo_code)).first()
-        if not combo: return pd.DataFrame()
-
+    def fetch_results(session, combo_id, school_filter_id=None):
+        """Hàm nội bộ để execute query và filter"""
+        results = []
+        
         query = select(
             School.name.label("school_name"),
             Major.name.label("major_name"),
@@ -261,11 +262,11 @@ def get_recommendations_by_specific_combo(combo_code: str, user_score: float, cu
         ).join(SchoolMajor, PredictionData.school_major_id == SchoolMajor.id)\
          .join(School, SchoolMajor.school_id == School.id)\
          .join(Major, SchoolMajor.major_id == Major.id)\
-         .where(PredictionData.combination_id == combo.id)\
+         .where(PredictionData.combination_id == combo_id)\
          .where(PredictionData.target_year == 2025)
 
-        if current_school_id:
-            query = query.where(School.id == current_school_id)
+        if school_filter_id:
+            query = query.where(School.id == school_filter_id)
 
         data = session.exec(query).all()
 
@@ -276,8 +277,8 @@ def get_recommendations_by_specific_combo(combo_code: str, user_score: float, cu
             diff = user_score - pred
             
             # Lọc bớt kết quả quá xa vời (User thiếu > 3 điểm)
-            if diff > -3.0: 
-                results_list.append({
+            if diff > -1.0: 
+                results.append({
                     "Trường": row.school_name,
                     "Ngành": row.major_name,
                     "Tổ hợp": combo_code,
@@ -286,24 +287,57 @@ def get_recommendations_by_specific_combo(combo_code: str, user_score: float, cu
                     "Dự báo 2025": round(pred, 2),
                     "Chênh lệch": round(diff, 2)
                 })
+        return results
+
+    with Session(engine) as session:
+        combo = session.exec(select(Combination).where(Combination.code == combo_code)).first()
+        if not combo: return pd.DataFrame()
+
+        # 1. Thử tìm kiếm với bộ lọc trường hiện tại (nếu có)
+        results_list = []
+        if current_school_id:
+            results_list = fetch_results(session, combo.id, current_school_id)
+        
+        # 2. Nếu kết quả rỗng (do không chọn trường hoặc do điểm quá thấp bị lọc hết)
+        # -> Mở rộng tìm kiếm sang TOÀN BỘ hệ thống (Global Search)
+        if not results_list:
+            results_list = fetch_results(session, combo.id, None)
 
     df = pd.DataFrame(results_list)
     if df.empty: return df
 
     return df.sort_values(by="Chênh lệch", ascending=False).head(limit)
 
-def get_lowest_score_majors(limit=5):
-    """Lấy danh sách ngành điểm thấp nhất (2024)"""
+def get_lowest_score_majors(limit=5, user_score: float = 0.0):
+    """Lấy danh sách ngành có điểm dự báo thấp nhất (2025) từ bảng PredictionData"""
     with Session(engine) as session:
-        query = select(School.name.label("Trường"), Major.name.label("Ngành"), Combination.code.label("Tổ hợp"), AdmissionScore.score)\
-            .join(SchoolMajor, AdmissionScore.school_major_id == SchoolMajor.id)\
+        query = select(
+            School.name.label("Trường"), 
+            Major.name.label("Ngành"), 
+            Combination.code.label("Tổ hợp"), 
+            PredictionData.pred_ensemble
+        )\
+            .join(SchoolMajor, PredictionData.school_major_id == SchoolMajor.id)\
             .join(School, SchoolMajor.school_id == School.id)\
             .join(Major, SchoolMajor.major_id == Major.id)\
-            .join(Combination, AdmissionScore.combination_id == Combination.id)\
-            .where(AdmissionScore.year == 2024, AdmissionScore.score > 12)\
-            .order_by(AdmissionScore.score).limit(limit)
+            .join(Combination, PredictionData.combination_id == Combination.id)\
+            .where(PredictionData.target_year == 2025)\
+            .where(PredictionData.pred_ensemble > 12)\
+            .order_by(PredictionData.pred_ensemble).limit(limit)
         
         results = session.exec(query).all()
-        data = [{"Trường": r[0], "Ngành": r[1], "Tổ hợp": r[2], "2023": 0, "2024": r[3], "Dự báo 2025": r[3], "Chênh lệch": "+ Dư dả"} for r in results]
+        
+        data = []
+        for r in results:
+            pred_score = r[3]
+            data.append({
+                "Trường": r[0],
+                "Ngành": r[1],
+                "Tổ hợp": r[2],
+                "2023": 0,
+                "2024": 0,
+                "Dự báo 2025": round(pred_score, 2),
+                "Chênh lệch": round(user_score - pred_score, 2)
+            })
             
         return pd.DataFrame(data)

@@ -206,7 +206,7 @@ def show_prediction_system():
         pass_status = prediction_result.is_passed
         
         # Logic nhãn trạng thái
-        status_label = "ĐẬU AN TOÀN" if pass_status else "NGUY CƠ TRƯỢT"
+        status_label = "ĐẬU AN TOÀN" if pass_status else "TRƯỢT"
         if diff >= 0 and diff < 1.0: status_label = "CƠ HỘI CAO" # Đậu nhưng sát nút
         if diff < 0 and diff >= -0.5: status_label = "CÂN NHẮC"  # Trượt nhưng sát nút
 
@@ -359,7 +359,8 @@ def show_prediction_system():
         if rec_df.empty:
             st.warning("😔 Với mức điểm hiện tại, rất khó tìm được ngành phù hợp xét tuyển khối này.")
             st.info("💪 **Lời khuyên:** Tham khảo các ngành có điểm chuẩn thấp nhất hệ thống:")
-            rec_df = utils.get_lowest_score_majors(limit=10)
+            rec_df = utils.get_lowest_score_majors(limit=10, user_score=user_total_score)
+            print(rec_df)
             show_school_col = True
         else:
             if msg_type == "success":

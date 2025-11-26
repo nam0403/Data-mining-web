@@ -15,11 +15,9 @@ with st.sidebar:
     st.title("Điều khiển")
     page = st.radio(
         "Chọn chức năng:", 
-        ["🎓 Hệ thống Dự đoán", "📊 Phân tích Model"],
+        ["🎓 Hệ thống Dự đoán"],
         index=0
     )
 # --- ROUTING ---
 if page == "🎓 Hệ thống Dự đoán":
     recommendation_system.show_prediction_system()
-elif page == "📊 Phân tích Model":
-    admin_dashboard.show_model_analysis()
